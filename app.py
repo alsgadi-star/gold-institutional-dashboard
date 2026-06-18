@@ -17,11 +17,28 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "Flow Academy Daily Gold Terminal V5.2 Report + Telegram"
+APP_VERSION = "Flow Academy Daily Gold Terminal V5.3 Pro Visual Identity"
 CACHE_TTL = 60 * 30
 
 hide_streamlit_style = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
+
+:root{
+    --fa-bg:#050a12;
+    --fa-panel:#0b1220;
+    --fa-card:#111a2b;
+    --fa-card2:#0e1728;
+    --fa-border:#233553;
+    --fa-text:#f8fafc;
+    --fa-muted:#94a3b8;
+    --fa-gold:#f6c453;
+    --fa-cyan:#17b7e8;
+    --fa-green:#12d18e;
+    --fa-red:#ff4d5a;
+    --fa-amber:#f59e0b;
+}
+
 #MainMenu {visibility:hidden;}
 footer {visibility:hidden;}
 header {visibility:hidden;}
@@ -29,55 +46,137 @@ header {visibility:hidden;}
 [data-testid="stDecoration"] {display:none;}
 [data-testid="stStatusWidget"] {display:none;}
 [data-testid="collapsedControl"] {display:none;}
-.block-container {padding-top: 1.2rem; padding-bottom: 2rem;}
+
+html, body, [data-testid="stAppViewContainer"]{
+    background:
+        radial-gradient(circle at 10% 0%, rgba(23,183,232,.16), transparent 28%),
+        radial-gradient(circle at 90% 5%, rgba(246,196,83,.12), transparent 22%),
+        linear-gradient(180deg, #050a12 0%, #07111e 55%, #050a12 100%);
+    color:var(--fa-text);
+    font-family:'Cairo', sans-serif;
+}
+
+[data-testid="stSidebar"]{
+    background:linear-gradient(180deg, #07111f 0%, #050a12 100%);
+    border-right:1px solid rgba(35,53,83,.9);
+}
+[data-testid="stSidebar"] *{color:var(--fa-text) !important;}
+.block-container {padding-top: 1.1rem; padding-bottom: 2rem; max-width: 1500px;}
+
+h1,h2,h3,.stSubheader{color:var(--fa-text) !important; font-family:'Cairo', sans-serif;}
+p, span, label, div{font-family:'Cairo', sans-serif;}
+
+.fa-hero{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:24px;
+    padding:28px 30px;
+    border:1px solid rgba(23,183,232,.28);
+    border-radius:24px;
+    background:
+        linear-gradient(135deg, rgba(17,26,43,.98) 0%, rgba(8,17,30,.98) 100%);
+    box-shadow:0 18px 50px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.05);
+    margin-bottom:24px;
+    position:relative;
+    overflow:hidden;
+}
+.fa-hero:before{
+    content:"";
+    position:absolute;
+    width:220px;height:220px;
+    right:-80px;top:-90px;
+    background:radial-gradient(circle, rgba(23,183,232,.22), transparent 68%);
+}
+.fa-title{
+    font-size:38px;
+    line-height:1.15;
+    font-weight:900;
+    letter-spacing:.2px;
+    color:var(--fa-text);
+    margin:0;
+}
+.fa-title span{color:var(--fa-gold);}
+.fa-subtitle{font-size:16px;color:var(--fa-muted);margin-top:8px;font-weight:700;}
+.fa-meta{display:inline-block;margin-top:16px;padding:7px 12px;border-radius:999px;background:rgba(23,183,232,.12);border:1px solid rgba(23,183,232,.28);color:#bfefff;font-size:13px;font-weight:800;}
+.fa-watermark{font-size:13px;color:var(--fa-muted);font-weight:800;text-align:right;}
+
 .metric-card {
-    border: 1px solid #e8e8e8;
-    border-radius: 16px;
-    padding: 16px;
-    background: #ffffff;
-    box-shadow: 0 1px 10px rgba(0,0,0,0.04);
-    min-height: 130px;
+    border:1px solid rgba(35,53,83,.95);
+    border-radius:20px;
+    padding:18px;
+    background:linear-gradient(180deg, rgba(17,26,43,.98), rgba(11,18,32,.98));
+    box-shadow:0 12px 32px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.04);
+    min-height:132px;
+    position:relative;
+    overflow:hidden;
 }
-.card-title {font-size: 15px; color:#4b5563; margin-bottom: 8px;}
-.card-value {font-size: 26px; font-weight: 800; color:#111827;}
-.card-note {font-size: 13px; color:#6b7280; margin-top: 7px;}
-.good {border-right: 8px solid #16a34a;}
-.neutral {border-right: 8px solid #f59e0b;}
-.bad {border-right: 8px solid #dc2626;}
-.blue {border-right: 8px solid #2563eb;}
-.big-title {font-size: 34px; font-weight: 900; color:#111827; margin-bottom: 0px;}
-.subtle {color:#6b7280; font-size: 14px;}
-.badge {
+.metric-card:after{
+    content:"";
+    position:absolute;
+    left:0;right:0;bottom:0;height:2px;
+    background:linear-gradient(90deg, transparent, rgba(23,183,232,.55), transparent);
+}
+.card-title {font-size:14px; color:#9cc9ff; margin-bottom:10px; font-weight:800;}
+.card-value {font-size:29px; font-weight:900; color:var(--fa-gold); line-height:1.2;}
+.card-note {font-size:13px; color:var(--fa-muted); margin-top:9px; font-weight:700;}
+.good {border-right:7px solid var(--fa-green);}
+.neutral {border-right:7px solid var(--fa-amber);}
+.bad {border-right:7px solid var(--fa-red);}
+.blue {border-right:7px solid var(--fa-cyan);}
+
+.badge{
     display:inline-block;
-    padding: 5px 12px;
-    border-radius: 999px;
-    font-size: 13px;
-    font-weight: 700;
-    margin: 3px 4px 3px 0;
+    padding:7px 13px;
+    border-radius:999px;
+    font-size:13px;
+    font-weight:900;
+    margin:4px 5px 4px 0;
+    border:1px solid rgba(255,255,255,.08);
 }
-.badge-green {background:#dcfce7; color:#166534;}
-.badge-yellow {background:#fef3c7; color:#92400e;}
-.badge-red {background:#fee2e2; color:#991b1b;}
-.badge-blue {background:#dbeafe; color:#1e40af;}
-.report-box {
-    direction: rtl;
-    text-align: right;
-    white-space: pre-wrap;
-    line-height: 1.9;
-    border: 1px solid #e5e7eb;
-    border-radius: 16px;
-    padding: 22px;
-    background: #f8fafc;
-    color: #111827;
-    font-size: 16px;
+.badge-green {background:rgba(18,209,142,.14); color:#7cf0bd;}
+.badge-yellow {background:rgba(245,158,11,.14); color:#ffd166;}
+.badge-red {background:rgba(255,77,90,.14); color:#ff9ca4;}
+.badge-blue {background:rgba(23,183,232,.14); color:#8be7ff;}
+
+.report-box{
+    direction:rtl;
+    text-align:right;
+    white-space:pre-wrap;
+    line-height:2;
+    border:1px solid rgba(35,53,83,.95);
+    border-radius:22px;
+    padding:26px;
+    background:linear-gradient(180deg, rgba(17,26,43,.98), rgba(8,17,30,.98));
+    color:var(--fa-text);
+    font-size:16px;
+    box-shadow:0 14px 36px rgba(0,0,0,.22);
 }
-.telegram-box {
-    border: 1px solid #dbeafe;
-    border-radius: 14px;
-    padding: 14px;
-    background: #eff6ff;
-    color: #1e3a8a;
+.telegram-box{
+    border:1px solid rgba(23,183,232,.28);
+    border-radius:18px;
+    padding:16px;
+    background:rgba(23,183,232,.08);
+    color:#bfefff;
+    font-weight:800;
 }
+
+[data-testid="stMetricValue"]{color:var(--fa-gold) !important;}
+.stButton button, .stDownloadButton button{
+    border-radius:12px;
+    border:1px solid rgba(23,183,232,.35);
+    background:linear-gradient(135deg, #0b6b8f, #0b3b63);
+    color:white;
+    font-weight:900;
+}
+.stTextInput input{
+    background:#0b1220;
+    color:var(--fa-text);
+    border:1px solid var(--fa-border);
+}
+[data-testid="stTabs"] button {color:var(--fa-muted); font-weight:800;}
+[data-testid="stDataFrame"]{border-radius:16px; overflow:hidden;}
+hr{border-color:rgba(35,53,83,.75);}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -573,8 +672,23 @@ weekly_bias = cot.get("bias", "neutral")
 intraday_bias = daily_bias if confidence >= 35 else "neutral"
 
 # ---------------- Header ----------------
-st.markdown('<div class="big-title">Flow Academy Daily Gold Terminal</div>', unsafe_allow_html=True)
-st.markdown(f'<div class="subtle">V5.1 Professional, Data Fallback, Daily Context, COT Professional, AI Narrative</div>', unsafe_allow_html=True)
+hero_time = datetime.utcnow().strftime("%H:%M UTC, %d %b %Y")
+st.markdown(
+    f"""
+    <div class="fa-hero">
+        <div>
+            <div class="fa-title">Flow Academy <span>Daily Gold Terminal</span></div>
+            <div class="fa-subtitle">لوحة احترافية لقراءة السياق اليومي والمؤسساتي للذهب</div>
+            <div class="fa-meta">آخر تحديث: {hero_time}</div>
+        </div>
+        <div class="fa-watermark">
+            COT • Real Yield • DXY • VIX • HUI • Gold/Silver<br>
+            Powered by Flow Academy Intelligence
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 b_kind = "green" if daily_bias == "bullish" else "red" if daily_bias == "bearish" else "yellow"
 st.markdown(
