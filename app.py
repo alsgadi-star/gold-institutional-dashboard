@@ -199,22 +199,6 @@ def plot_line(df: pd.DataFrame, title: str, y_col: str = "Close"):
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# ----------------------------- Sidebar -----------------------------
-st.sidebar.markdown("### إعدادات أكاديمية فلو")
-logo_file = st.sidebar.file_uploader("ارفع شعار الأكاديمية", type=["png", "jpg", "jpeg"])
-if logo_file:
-    st.sidebar.image(logo_file, use_container_width=True)
-else:
-    st.sidebar.markdown("ضع ملف الشعار باسم `logo.png` داخل GitHub حتى يظهر دائماً.")
-
-refresh = st.sidebar.button("تحديث البيانات")
-if refresh:
-    st.cache_data.clear()
-    st.rerun()
-
-st.sidebar.markdown("---")
-st.sidebar.caption(APP_VERSION)
-
 # ----------------------------- Data -----------------------------
 with st.spinner("جاري تحديث بيانات الذهب المؤسساتية..."):
     cot = cot_gold_current()
