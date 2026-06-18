@@ -1,4 +1,3 @@
-import datetime as dt
 import pandas as pd
 import requests
 import streamlit as st
@@ -7,12 +6,7 @@ st.set_page_config(page_title="Gold Institutional Dashboard", layout="wide")
 
 st.markdown("""
 <style>
-.main {direction: rtl;}
 .block-container {padding-top: 1.5rem;}
-.metric-card {border:1px solid #ddd; border-radius:14px; padding:16px; background:#0f172a; color:white;}
-.good {color:#22c55e; font-weight:700;}
-.bad {color:#ef4444; font-weight:700;}
-.neutral {color:#f59e0b; font-weight:700;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -35,19 +29,18 @@ def stooq_daily(symbol: str):
     if df.empty or "Close" not in df.columns:
         raise ValueError(f"No data for {symbol}")
     df["Date"] = pd.to_datetime(df["Date"])
+    df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
     return df.dropna()
 
 @st.cache_data(ttl=21600)
 def cot_gold():
-    # CFTC public Socrata endpoint, Legacy Futures Only.
-    # Gold COMEX market code 088691.
     url = "https://publicreporting.cftc.gov/resource/6dca-aqww.json"
     params = {
         "$limit": 5,
         "$order": "report_date_as_yyyy_mm_dd DESC",
         "cftc_contract_market_code": "088691"
     }
-    r = requests.get(url, params=params, timeout=20)
+    r = requests.get(url, params=params, timeout=25)
     r.raise_for_status()
     data = r.json()
     if not data:
@@ -55,9 +48,9 @@ def cot_gold():
     df = pd.DataFrame(data)
     for col in df.columns:
         if col not in ["market_and_exchange_names", "report_date_as_yyyy_mm_dd", "cftc_contract_market_code"]:
-            df[col] = pd.to_numeric(df[col], errors="ignore")
+            df[col] = pd.to_numeric(df[col], errors="coerce")
     df["report_date_as_yyyy_mm_dd"] = pd.to_datetime(df["report_date_as_yyyy_mm_dd"])
-    return df
+    return df.sort_values("report_date_as_yyyy_mm_dd", ascending=False)
 
 def trend_bias(last, prev, positive_when_down=False):
     diff = last - prev
@@ -68,67 +61,85 @@ def trend_bias(last, prev, positive_when_down=False):
     return ("Bullish", 1, diff) if diff > 0 else ("Bearish", -1, diff)
 
 def label_ar(bias):
-    return {"Bullish":"صاعد للذهب", "Bearish":"هابط للذهب", "Neutral":"محايد"}.get(bias, bias)
+    labels = {"Bullish": "صاعد للذهب", "Bearish": "هابط للذهب", "Neutral": "محايد"}
+    return labels.get(bias, "محايد")
+
+def fmt_num(x):
+    if x is None:
+        return "No data"
+    try:
+        return f"{float(x):,.2f}"
+    except Exception:
+        return str(x)
+
+def fmt_int(x):
+    if x is None:
+        return "No data"
+    try:
+        return f"{int(x):,}"
+    except Exception:
+        return str(x)
 
 score = 0
 notes = []
+
+cot_bias, net, cot_change = "Neutral", None, None
+real_bias, r_last, real_diff = "Neutral", None, None
+hui_bias, h_last, hui_diff = "Neutral", None, None
+gs_bias, gs_last, gs_diff = "Neutral", None, None
+gld_bias, g_last, gld_diff = "Neutral", None, None
 
 try:
     cot = cot_gold()
     latest = cot.iloc[0]
     prev = cot.iloc[1] if len(cot) > 1 else latest
-    nc_long = int(latest.get("noncomm_positions_long_all", 0))
-    nc_short = int(latest.get("noncomm_positions_short_all", 0))
+    nc_long = int(latest.get("noncomm_positions_long_all", 0) or 0)
+    nc_short = int(latest.get("noncomm_positions_short_all", 0) or 0)
     net = nc_long - nc_short
-    prev_net = int(prev.get("noncomm_positions_long_all", 0)) - int(prev.get("noncomm_positions_short_all", 0))
+    prev_net = int(prev.get("noncomm_positions_long_all", 0) or 0) - int(prev.get("noncomm_positions_short_all", 0) or 0)
     cot_change = net - prev_net
     cot_bias = "Bullish" if net > 0 and cot_change >= -10000 else "Bearish" if cot_change < -10000 else "Neutral"
     score += 2 if cot_bias == "Bullish" else -2 if cot_bias == "Bearish" else 0
 except Exception as e:
-    cot_bias, net, cot_change = "Neutral", None, None
     notes.append(f"COT error: {e}")
 
 try:
     real = fred_series("DFII10")
-    r_last = real.iloc[-1]["value"]
-    r_prev = real.iloc[-6]["value"] if len(real) > 6 else real.iloc[-2]["value"]
+    r_last = float(real.iloc[-1]["value"])
+    r_prev = float(real.iloc[-6]["value"] if len(real) > 6 else real.iloc[-2]["value"])
     real_bias, real_score, real_diff = trend_bias(r_last, r_prev, positive_when_down=True)
     score += real_score * 2
 except Exception as e:
-    real_bias, r_last, real_diff = "Neutral", None, None
     notes.append(f"Real Yield error: {e}")
 
 try:
     hui = stooq_daily("^hui")
-    h_last = hui.iloc[-1]["Close"]
-    h_prev = hui.iloc[-6]["Close"] if len(hui) > 6 else hui.iloc[-2]["Close"]
-    hui_bias, hui_score, hui_diff = trend_bias(h_last, h_prev, positive_when_down=False)
+    h_last = float(hui.iloc[-1]["Close"])
+    h_prev = float(hui.iloc[-6]["Close"] if len(hui) > 6 else hui.iloc[-2]["Close"])
+    hui_bias, hui_score, hui_diff = trend_bias(h_last, h_prev)
     score += hui_score
 except Exception as e:
-    hui_bias, h_last, hui_diff = "Neutral", None, None
     notes.append(f"HUI error: {e}")
 
 try:
     gold = stooq_daily("xauusd")
     silver = stooq_daily("xagusd")
-    merged = gold[["Date","Close"]].merge(silver[["Date","Close"]], on="Date", suffixes=("_gold","_silver"))
+    merged = gold[["Date", "Close"]].merge(silver[["Date", "Close"]], on="Date", suffixes=("_gold", "_silver"))
     merged["ratio"] = merged["Close_gold"] / merged["Close_silver"]
-    gs_last = merged.iloc[-1]["ratio"]
-    gs_prev = merged.iloc[-6]["ratio"] if len(merged) > 6 else merged.iloc[-2]["ratio"]
-    gs_bias, gs_score, gs_diff = trend_bias(gs_last, gs_prev, positive_when_down=False)
+    gs_last = float(merged.iloc[-1]["ratio"])
+    gs_prev = float(merged.iloc[-6]["ratio"] if len(merged) > 6 else merged.iloc[-2]["ratio"])
+    gs_bias, gs_score, gs_diff = trend_bias(gs_last, gs_prev)
     score += gs_score
 except Exception as e:
-    gs_bias, gs_last, gs_diff = "Neutral", None, None
     notes.append(f"Gold/Silver error: {e}")
 
 try:
     gld = stooq_daily("gld.us")
-    g_last = gld.iloc[-1]["Close"]
-    g_prev = gld.iloc[-6]["Close"] if len(gld) > 6 else gld.iloc[-2]["Close"]
-    gld_bias, gld_score, gld_diff = trend_bias(g_last, g_prev, positive_when_down=False)
+    g_last = float(gld.iloc[-1]["Close"])
+    g_prev = float(gld.iloc[-6]["Close"] if len(gld) > 6 else gld.iloc[-2]["Close"])
+    gld_bias, gld_score, gld_diff = trend_bias(g_last, g_prev)
     score += gld_score
 except Exception as e:
-    gld_bias, g_last, gld_diff = "Neutral", None, None
     notes.append(f"GLD error: {e}")
 
 if score >= 4:
@@ -139,42 +150,63 @@ else:
     final = "Neutral Gold Context"
 
 cols = st.columns(5)
-cols[0].metric("COT الصناديق", label_ar(cot_bias), f"Net {net:,}" if net is not None else "No data")
-cols[1].metric("Real Yield 10Y", label_ar(real_bias), f"{r_last:.2f}%" if r_last is not None else "No data")
-cols[2].metric("HUI Index", label_ar(hui_bias), f"{h_last:.2f}" if h_last is not None else "No data")
-cols[3].metric("Gold/Silver", label_ar(gs_bias), f"{gs_last:.2f}" if gs_last is not None else "No data")
-cols[4].metric("GLD Proxy", label_ar(gld_bias), f"{g_last:.2f}" if g_last is not None else "No data")
+cols[0].metric("COT الصناديق", label_ar(cot_bias), f"Net {fmt_int(net)}")
+cols[1].metric("Real Yield 10Y", label_ar(real_bias), f"{fmt_num(r_last)}%")
+cols[2].metric("HUI Index", label_ar(hui_bias), fmt_num(h_last))
+cols[3].metric("Gold/Silver", label_ar(gs_bias), fmt_num(gs_last))
+cols[4].metric("GLD Proxy", label_ar(gld_bias), fmt_num(g_last))
 
 st.subheader("النتيجة النهائية")
 st.metric("Institutional Score", f"{score}/7", final)
-report = f"""
+
+report = """
 النظرة المؤسساتية على الذهب
 
-COT: {label_ar(cot_bias)}
+COT: {cot_bias}
 صافي مراكز الصناديق: {net}
 التغير الأسبوعي: {cot_change}
 
-Real Yield 10Y: {label_ar(real_bias)}
-القراءة الحالية: {r_last if r_last is not None else 'No data'}
+Real Yield 10Y: {real_bias}
+القراءة الحالية: {real_yield}%
 
-HUI Index: {label_ar(hui_bias)}
+HUI Index: {hui_bias}
+القراءة الحالية: {hui}
 
-Gold/Silver Ratio: {label_ar(ratio_bias)}
+Gold/Silver Ratio: {gs_bias}
+القراءة الحالية: {gs}
 
-GLD Proxy: {label_ar(gld_bias)}
+GLD Proxy: {gld_bias}
+القراءة الحالية: {gld}
 
-النتيجة النهائية:
-{final_label}
-Institutional Score: {score}/7
-"""
+النتيجة النهائية: {final}
+درجة القوة: {score}/7
+
+هذا تحليل وليس توصية.
+""".format(
+    cot_bias=label_ar(cot_bias),
+    net=fmt_int(net),
+    cot_change=fmt_int(cot_change),
+    real_bias=label_ar(real_bias),
+    real_yield=fmt_num(r_last),
+    hui_bias=label_ar(hui_bias),
+    hui=fmt_num(h_last),
+    gs_bias=label_ar(gs_bias),
+    gs=fmt_num(gs_last),
+    gld_bias=label_ar(gld_bias),
+    gld=fmt_num(g_last),
+    final=final,
+    score=score
+)
+
+st.text_area("تقرير عربي جاهز للنشر", report, height=320)
 
 st.subheader("الرسوم")
-if 'real' in locals():
-    st.line_chart(real.set_index('date')["value"].tail(120))
-if 'merged' in locals():
-    st.line_chart(merged.set_index('Date')["ratio"].tail(120))
-if 'hui' in locals():
-    st.line_chart(hui.set_index('Date')["Close"].tail(120))
+if "real" in locals():
+    st.line_chart(real.set_index("date")["value"].tail(120))
+if "merged" in locals():
+    st.line_chart(merged.set_index("Date")["ratio"].tail(120))
+if "hui" in locals():
+    st.line_chart(hui.set_index("Date")["Close"].tail(120))
 
 if notes:
     st.info("بعض البيانات لم تعمل من المصدر الحالي:\n" + "\n".join(notes))
