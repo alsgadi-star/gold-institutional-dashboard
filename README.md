@@ -1,14 +1,13 @@
-# Flow Academy Gold Pro V3
+# Flow Academy Daily Gold Terminal V4
 
-Professional gold institutional dashboard.
+Daily gold context dashboard for Flow Academy.
 
 Files:
 - app.py
 - requirements.txt
-- optional logo.png
 
 Deploy:
-1. Upload app.py and requirements.txt to GitHub.
-2. Keep logo file as logo.png if available.
-3. Deploy with Streamlit Cloud.
-4. Main file path: app.py
+- Replace old app.py with this app.py
+- Replace requirements.txt
+- Keep logo.png in the repository root
+- Reboot Streamlit Cloud
