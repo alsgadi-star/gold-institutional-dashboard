@@ -237,8 +237,7 @@ def gold_silver_signal():
         bias, score = "bullish", 65
     else:
         bias, score = "bearish", 35
-    return {"valid":True,"source":"Yahoo Finance GC=F/SI=F","date":df["Date"].iloc[-1],"value":last,"ch5":ch5,"bias":bias,"score":score,"df":df}
-
+return {"valid":True,"source":"Yahoo Finance XAUUSD/XAGUSD","date":df["Date"].iloc[-1],"value":last,"ch5":ch5,"bias":bias,"score":score,"df":df}
 def line_chart(df, x, y, title):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df[x], y=df[y], mode="lines", name=title))
@@ -260,7 +259,7 @@ st.sidebar.markdown("Daily Score يعتمد على البيانات اليومي
 
 # ---------------- Load ----------------
 with st.spinner("جاري تحديث البيانات اليومية..."):
-    gold = yf_signal("GC=F", "Gold Futures", False, 0.4)
+    gold = yf_signal("XAUUSD=X", "Spot Gold XAUUSD", False, 0.4)
     dxy = yf_signal("DX-Y.NYB", "DXY", True, 0.25)
     real = real_yield_signal()
     us10y = us10y_signal()
