@@ -11,8 +11,8 @@ import requests
 import streamlit as st
 import yfinance as yf
 
-st.set_page_config(page_title="Flow Academy Daily Gold Terminal V4", page_icon="🟡", layout="wide")
-APP_VERSION = "Flow Academy Daily Gold Terminal V4.0"
+st.set_page_config(page_title="Flow Academy Daily Gold Terminal V4.1", page_icon="🟡", layout="wide")
+APP_VERSION = "Flow Academy Daily Gold Terminal V4.1 Spot Gold"
 CACHE_TTL = 60 * 30
 
 CSS = """
@@ -222,10 +222,15 @@ def us10y_signal():
         return {"valid":False,"source":"FRED DGS10","bias":"nodata","score":50,"error":str(e)}
 
 def gold_silver_signal():
-    g = yf_hist("GC=F", "6mo")
-    s = yf_hist("SI=F", "6mo")
+    g = yf_hist("XAUUSD=X", "6mo")
+    s = yf_hist("XAGUSD=X", "6mo")
+    source_name = "Yahoo Finance XAUUSD/XAGUSD"
     if g.empty or s.empty:
-        return {"valid":False,"source":"Yahoo Finance GC=F/SI=F","bias":"nodata","score":50}
+        g = yf_hist("GC=F", "6mo")
+        s = yf_hist("SI=F", "6mo")
+        source_name = "Yahoo Finance GC=F/SI=F fallback"
+    if g.empty or s.empty:
+        return {"valid":False,"source":source_name,"bias":"nodata","score":50}
     df = pd.merge(g[["Date","Close"]], s[["Date","Close"]], on="Date", suffixes=("_g","_s"))
     df["ratio"] = df["Close_g"] / df["Close_s"]
     last = safe_float(df["ratio"].iloc[-1])
@@ -237,7 +242,8 @@ def gold_silver_signal():
         bias, score = "bullish", 65
     else:
         bias, score = "bearish", 35
-return {"valid":True,"source":"Yahoo Finance XAUUSD/XAGUSD","date":df["Date"].iloc[-1],"value":last,"ch5":ch5,"bias":bias,"score":score,"df":df}
+    return {"valid":True,"source":source_name,"date":df["Date"].iloc[-1],"value":last,"ch5":ch5,"bias":bias,"score":score,"df":df}
+
 def line_chart(df, x, y, title):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df[x], y=df[y], mode="lines", name=title))
@@ -260,6 +266,8 @@ st.sidebar.markdown("Daily Score يعتمد على البيانات اليومي
 # ---------------- Load ----------------
 with st.spinner("جاري تحديث البيانات اليومية..."):
     gold = yf_signal("XAUUSD=X", "Spot Gold XAUUSD", False, 0.4)
+    if not gold.get("valid"):
+        gold = yf_signal("GC=F", "Gold Futures Fallback", False, 0.4)
     dxy = yf_signal("DX-Y.NYB", "DXY", True, 0.25)
     real = real_yield_signal()
     us10y = us10y_signal()
@@ -325,7 +333,7 @@ with right:
 st.markdown("### Daily Context Score")
 c1,c2,c3,c4 = st.columns(4)
 with c1: card("Daily Score", f"{daily_score}/100", "bullish" if daily_score>=55 else "bearish" if daily_score<=45 else "neutral", f"Reliability: {daily_reliability}%")
-with c2: card("Gold Futures", fmt_num(gold.get('value')), gold.get('bias','nodata'), f"1D: {fmt_num(gold.get('ch1'))}% | 5D: {fmt_num(gold.get('ch5'))}%")
+with c2: card("Spot Gold XAUUSD", fmt_num(gold.get('value')), gold.get('bias','nodata'), f"1D: {fmt_num(gold.get('ch1'))}% | 5D: {fmt_num(gold.get('ch5'))}%")
 with c3: card("Real Yield 10Y", f"{fmt_num(real.get('value'))}%", real.get('bias','nodata'), f"5D: {fmt_num(real.get('ch5'))}")
 with c4: card("DXY", fmt_num(dxy.get('value')), dxy.get('bias','nodata'), f"5D: {fmt_num(dxy.get('ch5'))}%")
 
@@ -403,7 +411,7 @@ with g1:
     if real.get('valid'): line_chart(real['df'], 'date', 'value', 'Real Yield 10Y - FRED')
     if dxy.get('valid'): line_chart(dxy['df'], 'Date', 'Close', 'DXY')
 with g2:
-    if gold.get('valid'): line_chart(gold['df'], 'Date', 'Close', 'Gold Futures')
+    if gold.get('valid'): line_chart(gold['df'], 'Date', 'Close', 'Spot Gold XAUUSD')
     if ratio.get('valid'): line_chart(ratio['df'], 'Date', 'ratio', 'Gold/Silver Ratio')
 
 st.markdown(f"<div class='note'>{APP_VERSION} | البيانات اليومية هي الأساس، COT و ETF Filters تستخدم كفلتر أسبوعي فقط.</div>", unsafe_allow_html=True)
