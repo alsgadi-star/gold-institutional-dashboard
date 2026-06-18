@@ -15,6 +15,20 @@ st.set_page_config(page_title="Flow Academy Daily Gold Terminal V4.1", page_icon
 APP_VERSION = "Flow Academy Daily Gold Terminal V4.1 Spot Gold"
 CACHE_TTL = 60 * 30
 
+COT_FALLBACK = {
+    "valid": True,
+    "source": "CFTC Legacy Futures Only - Last Available Fallback",
+    "status": "Last Available Data",
+    "date": "06/09/26",
+    "long": 207984,
+    "short": 34147,
+    "net": 173837,
+    "change": -2183,
+    "score": 80,
+    "bias": "bullish",
+}
+
+
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
@@ -157,9 +171,11 @@ def cot_gold_legacy():
             score -= 8
         if chg is not None and chg > 10000:
             score += 5
-        return {"valid": True, "source":"CFTC Legacy Futures Only", "date":as_of, "long":long, "short":short, "net":net, "change":chg, "score":max(0,min(100,score)), "bias":bias}
+        return {"valid": True, "source":"CFTC Legacy Futures Only", "status":"Updated", "date":as_of, "long":long, "short":short, "net":net, "change":chg, "score":max(0,min(100,score)), "bias":bias}
     except Exception as e:
-        return {"valid": False, "source":"CFTC Legacy Futures Only", "bias":"nodata", "score":50, "error":str(e)}
+        fallback = COT_FALLBACK.copy()
+        fallback["error"] = str(e)
+        return fallback
 
 def yf_signal(ticker, title, inverse=False, threshold=0.0, period="6mo"):
     try:
@@ -352,7 +368,7 @@ with r4: card("Gold/Silver", fmt_num(ratio.get('value')), ratio.get('bias','noda
 
 st.markdown("### Weekly Institutional Filter")
 w1,w2,w3 = st.columns(3)
-with w1: card("COT الصناديق", fmt_int(cot.get('net')), cot.get('bias','nodata'), f"Long: {fmt_int(cot.get('long'))} | Short: {fmt_int(cot.get('short'))} | As of: {cot.get('date','No date')}")
+with w1: card("COT الصناديق", fmt_int(cot.get('net')), cot.get('bias','nodata'), f"Long: {fmt_int(cot.get('long'))} | Short: {fmt_int(cot.get('short'))} | As of: {cot.get('date','No date')} | {cot.get('status','Updated')}")
 with w2: card("GLD Price Proxy", fmt_num(gld.get('value')), gld.get('bias','nodata'), f"5D: {fmt_num(gld.get('ch5'))}%")
 with w3: card("Weekly Filter Score", f"{weekly_score}/100", "bullish" if weekly_score>=55 else "bearish" if weekly_score<=45 else "neutral", "COT أسبوعي، GLD يومي Proxy")
 
@@ -377,7 +393,7 @@ Gold/Silver Ratio: {bias_ar(ratio.get('bias','nodata'))}، القراءة الح
 HUI Index: {bias_ar(hui.get('bias','nodata'))}، القراءة الحالية {fmt_num(hui.get('value'))}.
 
 الفلتر الأسبوعي:
-COT: {bias_ar(cot.get('bias','nodata'))}، صافي مراكز الصناديق {fmt_int(cot.get('net'))}، آخر تحديث {cot.get('date','No date')}.
+COT: {bias_ar(cot.get('bias','nodata'))}، صافي مراكز الصناديق {fmt_int(cot.get('net'))}، آخر تحديث {cot.get('date','No date')}، الحالة {cot.get('status','Updated')}.
 GLD Proxy: {bias_ar(gld.get('bias','nodata'))}، القراءة الحالية {fmt_num(gld.get('value'))}.
 
 قراءة أكاديمية فلو:
@@ -401,7 +417,7 @@ quality = pd.DataFrame([
     ["HUI", hui.get('source'), hui.get('date','No date'), "نعم" if hui.get('valid') else "لا"],
     ["Gold/Silver", ratio.get('source'), ratio.get('date','No date'), "نعم" if ratio.get('valid') else "لا"],
     ["GLD Proxy", gld.get('source'), gld.get('date','No date'), "نعم" if gld.get('valid') else "لا"],
-    ["COT", cot.get('source'), cot.get('date','No date'), "نعم" if cot.get('valid') else "لا"],
+    ["COT", cot.get('source'), f"{cot.get('date','No date')} | {cot.get('status','Updated')}", "نعم" if cot.get('valid') else "لا"],
 ], columns=["الأداة","المصدر","آخر تاريخ","يدخل بالنتيجة"])
 st.dataframe(quality, use_container_width=True, hide_index=True)
 
