@@ -147,7 +147,7 @@ cols[4].metric("GLD Proxy", label_ar(gld_bias), f"{g_last:.2f}" if g_last is not
 
 st.subheader("النتيجة النهائية")
 st.metric("Institutional Score", f"{score}/7", final)
-
+report = f"""
 النظرة المؤسساتية على الذهب
 
 COT: {label_ar(cot_bias)}
@@ -166,6 +166,7 @@ GLD Proxy: {label_ar(gld_bias)}
 النتيجة النهائية:
 {final_label}
 Institutional Score: {score}/7
+"""
 
 st.subheader("الرسوم")
 if 'real' in locals():
