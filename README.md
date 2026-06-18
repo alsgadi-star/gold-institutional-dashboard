@@ -1,13 +1,13 @@
-# Flow Academy Daily Gold Terminal V4
+# Flow Academy Daily Gold Terminal V5
 
-Daily gold context dashboard for Flow Academy.
+Upload `app.py` and `requirements.txt` to the GitHub repository, keep `logo.png`, then reboot the Streamlit app.
 
-Files:
-- app.py
-- requirements.txt
-
-Deploy:
-- Replace old app.py with this app.py
-- Replace requirements.txt
-- Keep logo.png in the repository root
-- Reboot Streamlit Cloud
+Main additions:
+- Daily Plan
+- Confidence Score
+- Market Regime
+- COT Professional Filter
+- Historical Accuracy
+- Telegram Alert System
+- Flow Academy AI Narrative
+- Heat Map
