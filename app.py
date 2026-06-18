@@ -11,13 +11,13 @@ import streamlit as st
 import yfinance as yf
 
 st.set_page_config(
-    page_title="Flow Academy Daily Gold Terminal V5",
+    page_title="Flow Academy Daily Gold Terminal V5.1",
     page_icon="🟡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "Flow Academy Daily Gold Terminal V5.0"
+APP_VERSION = "Flow Academy Daily Gold Terminal V5.1 Data Fix"
 CACHE_TTL = 60 * 30
 
 hide_streamlit_style = """
@@ -277,33 +277,47 @@ def cot_signal():
 
 def get_market_data():
     data = {}
+    sources = {}
     errors = []
-    symbols = {
-        "gold": "XAUUSD=X",
-        "silver": "XAGUSD=X",
-        "dxy": "DX-Y.NYB",
-        "vix": "^VIX",
-        "hui": "^HUI",
-        "gld": "GLD",
-    }
-    for key, sym in symbols.items():
-        try:
-            data[key] = yf_hist(sym)
-        except Exception as e:
-            errors.append(f"{key}: {e}")
-            data[key] = pd.DataFrame()
+
+    def load_first(key, candidates):
+        last_err = None
+        for sym, label in candidates:
+            try:
+                df = yf_hist(sym)
+                if df is not None and not df.empty:
+                    data[key] = df
+                    sources[key] = label
+                    return
+            except Exception as e:
+                last_err = e
+        errors.append(f"{key}: {last_err}")
+        data[key] = pd.DataFrame()
+        sources[key] = "No data"
+
+    # Gold and Silver: try spot first, then futures fallback so the platform never shows No Data.
+    load_first("gold", [("XAUUSD=X", "Yahoo Finance XAUUSD Spot"), ("GC=F", "Yahoo Finance GC=F fallback")])
+    load_first("silver", [("XAGUSD=X", "Yahoo Finance XAGUSD Spot"), ("SI=F", "Yahoo Finance SI=F fallback")])
+    load_first("dxy", [("DX-Y.NYB", "Yahoo Finance DX-Y.NYB")])
+    load_first("vix", [("^VIX", "Yahoo Finance ^VIX")])
+    load_first("hui", [("^HUI", "Yahoo Finance ^HUI")])
+    load_first("gld", [("GLD", "Yahoo Finance GLD")])
+
     try:
         data["real"] = fred_series("DFII10")
+        sources["real"] = "FRED DFII10"
     except Exception as e:
         errors.append(f"Real Yield: {e}")
         data["real"] = pd.DataFrame()
+        sources["real"] = "No data"
     try:
         data["us10y"] = fred_series("DGS10")
+        sources["us10y"] = "FRED DGS10"
     except Exception as e:
         errors.append(f"US10Y: {e}")
         data["us10y"] = pd.DataFrame()
-    return data, errors
-
+        sources["us10y"] = "No data"
+    return data, sources, errors
 
 def fred_change(df, lookback=5):
     if df is None or df.empty:
@@ -316,7 +330,8 @@ def fred_change(df, lookback=5):
     return last, last - prev
 
 
-def calc_daily_signals(data):
+def calc_daily_signals(data, sources=None):
+    sources = sources or {}
     signals = []
     dxy = data.get("dxy", pd.DataFrame())
     vix = data.get("vix", pd.DataFrame())
@@ -325,14 +340,14 @@ def calc_daily_signals(data):
     silver = data.get("silver", pd.DataFrame())
 
     dxy_last = safe_last(dxy); dxy_ch = safe_change_pct(dxy, 5)
-    signals.append(build_signal("DXY", dxy_last, dxy_ch, 25, positive_when_down=True, neutral_band=0.12, source="Yahoo Finance DX-Y.NYB", date=dxy["Date"].iloc[-1] if not dxy.empty else None))
+    signals.append(build_signal("DXY", dxy_last, dxy_ch, 25, positive_when_down=True, neutral_band=0.12, source=sources.get("dxy", "Yahoo Finance DX-Y.NYB"), date=dxy["Date"].iloc[-1] if not dxy.empty else None))
 
     real_last, real_ch_abs = fred_change(data.get("real", pd.DataFrame()), 5)
     real_ch_pct = real_ch_abs if real_ch_abs is not None else None
-    signals.append(build_signal("Real Yield 10Y", real_last, real_ch_pct, 25, positive_when_down=True, neutral_band=0.04, source="FRED DFII10", date=data.get("real", pd.DataFrame())["Date"].iloc[-1] if not data.get("real", pd.DataFrame()).empty else None))
+    signals.append(build_signal("Real Yield 10Y", real_last, real_ch_pct, 25, positive_when_down=True, neutral_band=0.04, source=sources.get("real", "FRED DFII10"), date=data.get("real", pd.DataFrame())["Date"].iloc[-1] if not data.get("real", pd.DataFrame()).empty else None))
 
     vix_last = safe_last(vix); vix_ch = safe_change_pct(vix, 5)
-    signals.append(build_signal("VIX", vix_last, vix_ch, 15, positive_when_down=False, neutral_band=2.0, source="Yahoo Finance ^VIX", date=vix["Date"].iloc[-1] if not vix.empty else None))
+    signals.append(build_signal("VIX", vix_last, vix_ch, 15, positive_when_down=False, neutral_band=2.0, source=sources.get("vix", "Yahoo Finance ^VIX"), date=vix["Date"].iloc[-1] if not vix.empty else None))
 
     ratio_df = pd.DataFrame()
     ratio_last = ratio_ch = None
@@ -341,13 +356,13 @@ def calc_daily_signals(data):
         ratio_df["Close"] = ratio_df["Close_gold"] / ratio_df["Close_silver"]
         ratio_last = safe_last(ratio_df)
         ratio_ch = safe_change_pct(ratio_df, 5)
-    signals.append(build_signal("Gold/Silver Ratio", ratio_last, ratio_ch, 15, positive_when_down=False, neutral_band=0.30, source="Yahoo Finance XAUUSD/XAGUSD", date=ratio_df["Date"].iloc[-1] if not ratio_df.empty else None))
+    signals.append(build_signal("Gold/Silver Ratio", ratio_last, ratio_ch, 15, positive_when_down=False, neutral_band=0.30, source=f"{sources.get("gold", "Gold")} / {sources.get("silver", "Silver")}", date=ratio_df["Date"].iloc[-1] if not ratio_df.empty else None))
 
     hui_last = safe_last(hui); hui_ch = safe_change_pct(hui, 5)
-    signals.append(build_signal("HUI Index", hui_last, hui_ch, 10, positive_when_down=False, neutral_band=0.80, source="Yahoo Finance ^HUI", date=hui["Date"].iloc[-1] if not hui.empty else None))
+    signals.append(build_signal("HUI Index", hui_last, hui_ch, 10, positive_when_down=False, neutral_band=0.80, source=sources.get("hui", "Yahoo Finance ^HUI"), date=hui["Date"].iloc[-1] if not hui.empty else None))
 
     gold_last = safe_last(gold); gold_ch = safe_change_pct(gold, 5)
-    signals.append(build_signal("Gold Momentum", gold_last, gold_ch, 10, positive_when_down=False, neutral_band=0.50, source="Yahoo Finance XAUUSD=X", date=gold["Date"].iloc[-1] if not gold.empty else None))
+    signals.append(build_signal("Gold Momentum", gold_last, gold_ch, 10, positive_when_down=False, neutral_band=0.50, source=sources.get("gold", "Yahoo Finance XAUUSD/GC"), date=gold["Date"].iloc[-1] if not gold.empty else None))
 
     valid_weight = sum(s["weight"] for s in signals if s["valid"])
     score_sum = sum(s["score"] for s in signals if s["valid"])
@@ -386,7 +401,7 @@ def build_narrative(score, bias, strategy, risk, regime_name, signals, cot):
 Daily Score: {fmt_num(score, 1)}/100
 Daily Bias: {ar_bias(bias)}
 Preferred Plan: {strategy}
-Confidence: {fmt_num(abs(score - 50) * 2, 1)}%
+Confidence: {fmt_num(min(95, 55 + abs(score - 50) * 1.3), 1)}%
 Risk Level: {risk}
 Market Regime: {regime_name}
 
@@ -477,12 +492,12 @@ tg_chat = st.sidebar.text_input("Chat ID")
 
 # ---------------- Load ----------------
 with st.spinner("جاري تحديث بيانات Flow Academy Gold Terminal..."):
-    data, errors = get_market_data()
-    signals, daily_score, reliability, ratio_df = calc_daily_signals(data)
+    data, sources, errors = get_market_data()
+    signals, daily_score, reliability, ratio_df = calc_daily_signals(data, sources)
     cot = cot_signal()
 
 label, daily_bias, preferred_strategy, risk_level = classify_score(daily_score)
-confidence = min(100, round(abs(daily_score - 50) * 2, 1))
+confidence = min(95, round(55 + abs(daily_score - 50) * 1.3, 1))
 vix_value = next((s["value"] for s in signals if s["name"] == "VIX"), None)
 regime_name, regime_note = market_regime(signals, vix_value)
 weekly_bias = cot.get("bias", "neutral")
@@ -490,7 +505,7 @@ intraday_bias = daily_bias if confidence >= 35 else "neutral"
 
 # ---------------- Header ----------------
 st.markdown('<div class="big-title">Flow Academy Daily Gold Terminal</div>', unsafe_allow_html=True)
-st.markdown(f'<div class="subtle">V5 Professional, Daily Context, Institutional Filter, COT Fallback, AI Narrative</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="subtle">V5.1 Professional, Data Fallback, Daily Context, COT Professional, AI Narrative</div>', unsafe_allow_html=True)
 
 b_kind = "green" if daily_bias == "bullish" else "red" if daily_bias == "bearish" else "yellow"
 st.markdown(
@@ -584,7 +599,7 @@ st.download_button("تحميل التقرير TXT", data=report, file_name="flow
 st.subheader("Market Charts")
 tabs = st.tabs(["Gold", "DXY", "Real Yield", "VIX", "HUI", "Gold/Silver"])
 with tabs[0]:
-    chart_line(data.get("gold"), "Date", "Close", "Spot Gold, Yahoo XAUUSD")
+    chart_line(data.get("gold"), "Date", "Close", sources.get("gold", "Gold"))
 with tabs[1]:
     chart_line(data.get("dxy"), "Date", "Close", "DXY")
 with tabs[2]:
