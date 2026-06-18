@@ -15,6 +15,32 @@ st.set_page_config(page_title="Flow Academy Daily Gold Terminal V4.1", page_icon
 APP_VERSION = "Flow Academy Daily Gold Terminal V4.1 Spot Gold"
 CACHE_TTL = 60 * 30
 
+hide_streamlit_style = """
+<style>
+#MainMenu {visibility:hidden;}
+footer {visibility:hidden;}
+header {visibility:hidden;}
+
+[data-testid="stToolbar"] {
+    display:none;
+}
+
+[data-testid="stDecoration"] {
+    display:none;
+}
+
+[data-testid="stStatusWidget"] {
+    display:none;
+}
+
+[data-testid="collapsedControl"] {
+    display:none;
+}
+</style>
+"""
+
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 COT_FALLBACK = {
     "valid": True,
     "source": "CFTC Legacy Futures Only - Last Available Fallback",
