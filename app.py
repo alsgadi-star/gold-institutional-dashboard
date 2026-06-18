@@ -1,5 +1,6 @@
 import io
 import re
+from pathlib import Path
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -199,6 +200,22 @@ def plot_line(df: pd.DataFrame, title: str, y_col: str = "Close"):
     )
     st.plotly_chart(fig, use_container_width=True)
 
+# ----------------------------- Sidebar -----------------------------
+st.sidebar.markdown("### أكاديمية فلو")
+logo_path = Path("logo.png")
+if logo_path.exists():
+    st.sidebar.image(str(logo_path), use_container_width=True)
+else:
+    st.sidebar.markdown("ضع شعار الأكاديمية داخل GitHub باسم `logo.png`.")
+
+refresh = st.sidebar.button("تحديث البيانات")
+if refresh:
+    st.cache_data.clear()
+    st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.caption(APP_VERSION)
+
 # ----------------------------- Data -----------------------------
 with st.spinner("جاري تحديث بيانات الذهب المؤسساتية..."):
     cot = cot_gold_current()
@@ -278,8 +295,8 @@ else:
 # ----------------------------- Header -----------------------------
 header_cols = st.columns([1, 5])
 with header_cols[0]:
-    if logo_file:
-        st.image(logo_file, use_container_width=True)
+    if logo_path.exists():
+        st.image(str(logo_path), use_container_width=True)
     else:
         st.markdown("<div style='font-size:52px;text-align:center;'>𓂀</div>", unsafe_allow_html=True)
 with header_cols[1]:
