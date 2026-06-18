@@ -1,451 +1,537 @@
 import io
+import math
 import re
+import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 import yfinance as yf
-import plotly.graph_objects as go
 
-st.set_page_config(
-    page_title="Flow Academy | Gold Institutional Dashboard",
-    page_icon="🟡",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="Flow Academy Gold Pro V3", page_icon="🟡", layout="wide")
 
-APP_VERSION = "Flow Academy Gold Pro v2.0"
+APP_VERSION = "Flow Academy Gold Pro V3.0"
+CACHE_TTL = 60 * 30
 
-st.markdown(
-    """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
-    html, body, [class*="css"] {font-family: 'Cairo', sans-serif;}
-    .stApp {background: #070B12; color: #F5F7FA;}
-    section[data-testid="stSidebar"] {background: #0B111C; border-left: 1px solid #1f2937;}
-    .main .block-container {padding-top: 1.5rem;}
-    h1, h2, h3 {color: #F8D36B; font-weight: 800;}
-    .brand-card {
-        background: linear-gradient(135deg, #101827 0%, #111827 50%, #1F2937 100%);
-        border: 1px solid #2D3748;
-        border-radius: 22px;
-        padding: 22px 26px;
-        margin-bottom: 18px;
-        box-shadow: 0 12px 35px rgba(0,0,0,0.25);
-    }
-    .brand-title {font-size: 36px; color: #F8D36B; font-weight: 800; margin: 0;}
-    .brand-subtitle {font-size: 16px; color: #CBD5E1; margin-top: 8px;}
-    .metric-card {
-        background: #0F172A;
-        border: 1px solid #273449;
-        border-radius: 18px;
-        padding: 18px;
-        min-height: 150px;
-    }
-    .metric-title {font-size: 14px; color: #94A3B8; margin-bottom: 8px;}
-    .metric-value {font-size: 25px; font-weight: 800; color: #F8FAFC; margin-bottom: 10px;}
-    .badge-green {background:#123B2A; color:#4ADE80; padding:6px 10px; border-radius:999px; font-weight:700; font-size:13px;}
-    .badge-red {background:#3B1518; color:#F87171; padding:6px 10px; border-radius:999px; font-weight:700; font-size:13px;}
-    .badge-gray {background:#263244; color:#CBD5E1; padding:6px 10px; border-radius:999px; font-weight:700; font-size:13px;}
-    .report-box {
-        background:#0F172A;
-        border:1px solid #273449;
-        border-radius:18px;
-        padding:20px;
-        color:#E5E7EB;
-        line-height:2;
-        direction:rtl;
-        text-align:right;
-        white-space:pre-wrap;
-    }
-    .small-note {color:#94A3B8; font-size:13px;}
-    div[data-testid="stMetricValue"] {color:#F8D36B;}
-    div[data-testid="stMetricLabel"] {color:#CBD5E1;}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+html, body, [class*="css"] {font-family: 'Cairo', sans-serif;}
+.stApp {background:#070b12;color:#f7f7f7;}
+[data-testid="stSidebar"] {background:#0b111c;}
+.main-card {background:linear-gradient(135deg,#0f1728,#111d31);border:1px solid #233150;border-radius:22px;padding:22px;}
+.metric-card {background:#111a2c;border:1px solid #273756;border-radius:18px;padding:18px;min-height:140px;}
+.metric-title {color:#9bb4d6;font-size:14px;margin-bottom:10px;}
+.metric-value {font-size:30px;font-weight:800;color:#ffd84d;}
+.good {color:#19c37d;font-weight:800;}
+.bad {color:#ff4b4b;font-weight:800;}
+.neutral {color:#ffd84d;font-weight:800;}
+.source-ok {background:#053b25;color:#22d884;border-radius:14px;padding:4px 10px;font-size:13px;}
+.source-bad {background:#421515;color:#ff6868;border-radius:14px;padding:4px 10px;font-size:13px;}
+.source-warn {background:#4a3b08;color:#ffd84d;border-radius:14px;padding:4px 10px;font-size:13px;}
+.report-box {background:#0f1728;border:1px solid #253759;border-radius:18px;padding:20px;white-space:pre-wrap;line-height:1.9;direction:rtl;text-align:right;}
+.small-note {color:#8da0bd;font-size:13px;}
+</style>
+"""
+st.markdown(CSS, unsafe_allow_html=True)
 
 # ----------------------------- Helpers -----------------------------
-@st.cache_data(ttl=60 * 30, show_spinner=False)
-def fred_csv(series_id: str, years: int = 3) -> pd.DataFrame:
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-    df = pd.read_csv(url)
-    df.columns = ["Date", "Value"]
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    df["Value"] = pd.to_numeric(df["Value"].replace(".", np.nan), errors="coerce")
-    cutoff = pd.Timestamp.today() - pd.DateOffset(years=years)
-    return df.dropna().query("Date >= @cutoff").reset_index(drop=True)
 
-@st.cache_data(ttl=60 * 20, show_spinner=False)
-def yf_hist(symbol: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
-    df = yf.download(symbol, period=period, interval=interval, auto_adjust=True, progress=False, threads=False)
-    if df is None or df.empty:
-        return pd.DataFrame()
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [c[0] for c in df.columns]
-    df = df.reset_index()
-    if "Date" not in df.columns:
-        df.rename(columns={df.columns[0]: "Date"}, inplace=True)
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    return df.dropna(subset=["Date"]).reset_index(drop=True)
+def safe_float(x):
+    try:
+        if x is None:
+            return None
+        if isinstance(x, str):
+            x = x.replace(",", "").replace("%", "").strip()
+            if x in ["", ".", "nan", "None"]:
+                return None
+        v = float(x)
+        if math.isnan(v) or math.isinf(v):
+            return None
+        return v
+    except Exception:
+        return None
 
-@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
-def cot_gold_current() -> dict:
-    url = "https://www.cftc.gov/dea/futures/deacmxlf.htm"
-    txt = requests.get(url, timeout=25).text
-    # Gold block in legacy futures only, COMEX
-    m = re.search(r"GOLD - COMMODITY EXCHANGE INC\..*?(?=\n[A-Z0-9 /&.'-]+ - [A-Z0-9 /&.'-]+\.|\Z)", txt, flags=re.S)
-    if not m:
-        return {"ok": False, "error": "COT gold block not found"}
-    block = m.group(0)
-    date_m = re.search(r"POSITIONS AS OF\s+([0-9/]+)", block)
-    oi_m = re.search(r"OPEN INTEREST:\s+([0-9,]+)", block)
-    nums_lines = re.findall(r"\n\s*([0-9,]+\s+[0-9,]+\s+[0-9,]+\s+[0-9,]+\s+[0-9,]+\s+[0-9,]+\s+[0-9,]+\s+[0-9,]+\s+[0-9,]+)", block)
-    if len(nums_lines) < 2:
-        return {"ok": False, "error": "COT numeric lines not parsed"}
-    commitments = [int(x.replace(",", "")) for x in nums_lines[0].split()]
-    changes = [int(x.replace(",", "")) for x in nums_lines[1].split()]
-    nc_long, nc_short, nc_spreads = commitments[0], commitments[1], commitments[2]
-    ch_long, ch_short = changes[0], changes[1]
-    net = nc_long - nc_short
-    net_change = ch_long - ch_short
+
+def fmt_num(x, digits=2):
+    v = safe_float(x)
+    if v is None:
+        return "No data"
+    return f"{v:,.{digits}f}"
+
+
+def fmt_int(x):
+    v = safe_float(x)
+    if v is None:
+        return "No data"
+    return f"{int(round(v)):,.0f}"
+
+
+def now_text():
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def age_status(date_value):
+    if date_value is None or pd.isna(date_value):
+        return "No date", "bad"
+    try:
+        d = pd.to_datetime(date_value).tz_localize(None)
+        age = (pd.Timestamp.utcnow().tz_localize(None) - d).days
+        if age <= 3:
+            return f"حديث: {age} يوم", "ok"
+        if age <= 10:
+            return f"متأخر: {age} يوم", "warn"
+        return f"قديم: {age} يوم", "bad"
+    except Exception:
+        return "No date", "bad"
+
+
+def source_badge(label, status="ok"):
+    cls = "source-ok" if status == "ok" else "source-warn" if status == "warn" else "source-bad"
+    return f"<span class='{cls}'>{label}</span>"
+
+
+def bias_ar(bias):
     return {
-        "ok": True,
-        "date": date_m.group(1) if date_m else "",
-        "open_interest": int(oi_m.group(1).replace(",", "")) if oi_m else None,
-        "nc_long": nc_long,
-        "nc_short": nc_short,
-        "nc_spreads": nc_spreads,
-        "net": net,
-        "net_change": net_change,
-        "commercial_long": commitments[3],
-        "commercial_short": commitments[4],
-        "source": url,
-    }
+        "bullish": "صاعد للذهب",
+        "bearish": "هابط للذهب",
+        "neutral": "محايد",
+        "nodata": "لا توجد بيانات",
+    }.get(bias, "محايد")
 
 
-def last_close(df: pd.DataFrame):
-    if df is None or df.empty or "Close" not in df.columns:
-        return None
-    return float(df["Close"].dropna().iloc[-1])
-
-
-def pct_change(df: pd.DataFrame, days: int = 20):
-    if df is None or df.empty or "Close" not in df.columns or len(df.dropna()) <= days:
-        return None
-    s = df["Close"].dropna()
-    return float((s.iloc[-1] / s.iloc[-days] - 1) * 100)
-
-
-def trend(df: pd.DataFrame, fast: int = 20, slow: int = 60):
-    if df is None or df.empty or "Close" not in df.columns or len(df.dropna()) < slow:
-        return "neutral"
-    s = df["Close"].dropna()
-    ma_fast = s.rolling(fast).mean().iloc[-1]
-    ma_slow = s.rolling(slow).mean().iloc[-1]
-    if ma_fast > ma_slow:
-        return "up"
-    if ma_fast < ma_slow:
-        return "down"
+def bias_class(bias):
+    if bias == "bullish":
+        return "good"
+    if bias == "bearish":
+        return "bad"
     return "neutral"
 
 
-def bias_ar(bias: str) -> str:
-    return {"bullish": "صاعد للذهب", "bearish": "هابط للذهب", "neutral": "محايد", "nodata": "لا توجد بيانات"}.get(bias, "محايد")
+def weighted_score(items):
+    valid_weight = 0
+    total = 0
+    for item in items:
+        if not item.get("valid"):
+            continue
+        valid_weight += item["weight"]
+        total += item["score"] * item["weight"]
+    if valid_weight == 0:
+        return None, 0
+    score = round(total / valid_weight)
+    reliability = round(valid_weight)
+    return score, reliability
 
 
-def badge_class(bias: str) -> str:
-    return "badge-green" if bias == "bullish" else "badge-red" if bias == "bearish" else "badge-gray"
-
-
-def score_bias(bias: str, weight: int):
-    if bias == "bullish":
-        return weight
-    if bias == "bearish":
-        return -weight
-    return 0
-
-
-def render_card(title, value, detail, bias):
+def metric_card(title, value, bias, sub="", source=""):
+    cls = bias_class(bias)
     st.markdown(
         f"""
         <div class="metric-card">
-          <div class="metric-title">{title}</div>
-          <div class="metric-value">{value}</div>
-          <span class="{badge_class(bias)}">{detail}</span>
+            <div class="metric-title">{title}</div>
+            <div class="metric-value">{value}</div>
+            <div class="{cls}">{bias_ar(bias)}</div>
+            <div class="small-note">{sub}</div>
+            <div style="margin-top:8px;">{source}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
+# ----------------------------- Data Sources -----------------------------
 
-def plot_line(df: pd.DataFrame, title: str, y_col: str = "Close"):
-    if df is None or df.empty or y_col not in df.columns:
-        st.info(f"لا توجد بيانات كافية لرسم {title}")
-        return
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df["Date"], y=df[y_col], mode="lines", name=title))
-    fig.update_layout(
-        title=title,
-        template="plotly_dark",
-        height=330,
-        margin=dict(l=20, r=20, t=50, b=20),
-        paper_bgcolor="#070B12",
-        plot_bgcolor="#0F172A",
-        font=dict(color="#E5E7EB"),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+def get_fred_series(series_id):
+    # FRED CSV endpoint without API key
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    r = requests.get(url, timeout=20)
+    r.raise_for_status()
+    df = pd.read_csv(io.StringIO(r.text))
+    df.columns = ["date", "value"]
+    df["date"] = pd.to_datetime(df["date"])
+    df["value"] = pd.to_numeric(df["value"].replace(".", np.nan), errors="coerce")
+    df = df.dropna().tail(260)
+    return df
+
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+def get_yf_history(ticker, period="6mo"):
+    data = yf.download(ticker, period=period, interval="1d", progress=False, auto_adjust=False)
+    if data is None or data.empty:
+        return pd.DataFrame()
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = [c[0] for c in data.columns]
+    data = data.reset_index()
+    data["Date"] = pd.to_datetime(data["Date"])
+    return data
+
+@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+def get_cot_gold():
+    # CFTC current legacy futures only, compressed CSV
+    urls = [
+        "https://www.cftc.gov/dea/newcot/f_disagg.txt",
+        "https://www.cftc.gov/dea/newcot/deacmxlf.txt",
+        "https://www.cftc.gov/dea/futures/deacmxlf.txt",
+    ]
+    last_error = None
+    for url in urls:
+        try:
+            text = requests.get(url, timeout=25).text
+            # Try fixed CFTC text report parser for gold block
+            m = re.search(r"GOLD\s+-\s+COMMODITY EXCHANGE INC\..*?(?=\n\s*[A-Z][A-Z\s/\-]+-\s|\Z)", text, re.S)
+            if not m:
+                continue
+            block = m.group(0)
+            # Date
+            dm = re.search(r"AS OF\s+(\d{2}/\d{2}/\d{2})", block)
+            as_of = dm.group(1) if dm else "No date"
+            # First commitment line after COMMITMENTS
+            lines = [ln for ln in block.splitlines() if re.search(r"\d", ln)]
+            commit_line = None
+            change_line = None
+            for i, ln in enumerate(lines):
+                if "OPEN INTEREST" in ln:
+                    continue
+                nums = re.findall(r"-?\d{1,3}(?:,\d{3})*|-?\d+", ln)
+                if len(nums) >= 9:
+                    commit_line = ln
+                    # next numeric line likely changes
+                    for ln2 in lines[i+1:]:
+                        nums2 = re.findall(r"-?\d{1,3}(?:,\d{3})*|-?\d+", ln2)
+                        if len(nums2) >= 9:
+                            change_line = ln2
+                            break
+                    break
+            if not commit_line:
+                continue
+            nums = [int(n.replace(",", "")) for n in re.findall(r"-?\d{1,3}(?:,\d{3})*|-?\d+", commit_line)]
+            chnums = [int(n.replace(",", "")) for n in re.findall(r"-?\d{1,3}(?:,\d{3})*|-?\d+", change_line or "")]
+            # Layout from legacy: non-commercial long, short, spreads, commercial long, short...
+            noncom_long, noncom_short = nums[0], nums[1]
+            net = noncom_long - noncom_short
+            change_net = None
+            if len(chnums) >= 2:
+                change_net = chnums[0] - chnums[1]
+            bias = "bullish" if net > 0 else "bearish" if net < 0 else "neutral"
+            # Score uses net and weekly change. Crowded long but still positive.
+            score = 75 if net > 100000 else 60 if net > 30000 else 45 if net > 0 else 25
+            if change_net is not None and change_net < -10000:
+                score -= 10
+            if change_net is not None and change_net > 10000:
+                score += 5
+            score = max(0, min(100, score))
+            return {
+                "valid": True, "source": "CFTC", "as_of": as_of, "long": noncom_long,
+                "short": noncom_short, "net": net, "change_net": change_net,
+                "bias": bias, "score": score, "raw_url": url
+            }
+        except Exception as e:
+            last_error = str(e)
+            continue
+    return {"valid": False, "source": "CFTC", "bias": "nodata", "score": 50, "error": last_error}
+
+
+def real_yield_signal():
+    try:
+        df = get_fred_series("DFII10")
+        last = safe_float(df["value"].iloc[-1])
+        prev20 = safe_float(df["value"].iloc[-21]) if len(df) > 21 else None
+        change20 = None if prev20 is None or last is None else last - prev20
+        # For gold: falling real yield bullish, rising bearish
+        if change20 is None:
+            bias = "neutral"; score = 50
+        elif change20 < -0.10:
+            bias = "bullish"; score = 75
+        elif change20 > 0.10:
+            bias = "bearish"; score = 25
+        else:
+            bias = "neutral"; score = 50
+        return {"valid": True, "source": "FRED DFII10", "date": df["date"].iloc[-1], "value": last, "change20": change20, "bias": bias, "score": score, "df": df}
+    except Exception as e:
+        return {"valid": False, "source": "FRED DFII10", "bias": "nodata", "score": 50, "error": str(e)}
+
+
+def yf_signal(ticker, title, gold_inverse=False, threshold=0.0, period="6mo"):
+    try:
+        df = get_yf_history(ticker, period)
+        if df.empty or "Close" not in df:
+            raise ValueError("No data")
+        last = safe_float(df["Close"].iloc[-1])
+        prev20 = safe_float(df["Close"].iloc[-21]) if len(df) > 21 else None
+        change_pct = None if prev20 in [None, 0] or last is None else (last / prev20 - 1) * 100
+        if change_pct is None:
+            bias = "neutral"; score = 50
+        else:
+            rising = change_pct > threshold
+            falling = change_pct < -threshold
+            if gold_inverse:
+                bias = "bearish" if rising else "bullish" if falling else "neutral"
+                score = 25 if rising else 75 if falling else 50
+            else:
+                bias = "bullish" if rising else "bearish" if falling else "neutral"
+                score = 75 if rising else 25 if falling else 50
+        return {"valid": True, "source": f"Yahoo Finance {ticker}", "title": title, "date": df["Date"].iloc[-1], "value": last, "change20": change_pct, "bias": bias, "score": score, "df": df}
+    except Exception as e:
+        return {"valid": False, "source": f"Yahoo Finance {ticker}", "title": title, "bias": "nodata", "score": 50, "error": str(e)}
+
+
+def gold_silver_signal():
+    gold = yf_signal("GC=F", "Gold Futures", False, 0.0)
+    silver = yf_signal("SI=F", "Silver Futures", False, 0.0)
+    if not gold.get("valid") or not silver.get("valid"):
+        return {"valid": False, "source": "Yahoo Finance GC=F/SI=F", "bias": "nodata", "score": 50}
+    gdf, sdf = gold["df"].copy(), silver["df"].copy()
+    df = pd.merge(gdf[["Date", "Close"]], sdf[["Date", "Close"]], on="Date", suffixes=("_gold", "_silver"))
+    df["ratio"] = df["Close_gold"] / df["Close_silver"]
+    last = safe_float(df["ratio"].iloc[-1])
+    prev20 = safe_float(df["ratio"].iloc[-21]) if len(df) > 21 else None
+    change20 = None if prev20 in [None, 0] else (last / prev20 - 1) * 100
+    # Rising ratio means gold stronger than silver, defensive support for gold.
+    if change20 is None:
+        bias = "neutral"; score = 50
+    elif change20 > 1.0:
+        bias = "bullish"; score = 65
+    elif change20 < -1.0:
+        bias = "bearish"; score = 35
+    else:
+        bias = "neutral"; score = 50
+    return {"valid": True, "source": "Yahoo Finance GC=F/SI=F", "date": df["Date"].iloc[-1], "value": last, "change20": change20, "bias": bias, "score": score, "df": df}
+
+
+def gld_proxy_signal():
+    # GLD price proxy. Official ETF flows need WGC file/API access. This proxy does NOT replace WGC holdings flows.
+    return yf_signal("GLD", "GLD ETF Proxy", False, 1.0)
 
 # ----------------------------- Sidebar -----------------------------
-st.sidebar.markdown("### أكاديمية فلو")
+
+st.sidebar.markdown("### إعدادات أكاديمية فلو")
 logo_path = Path("logo.png")
 if logo_path.exists():
     st.sidebar.image(str(logo_path), use_container_width=True)
 else:
-    st.sidebar.markdown("ضع شعار الأكاديمية داخل GitHub باسم `logo.png`.")
+    st.sidebar.markdown("الشعار غير موجود. ارفع الملف باسم logo.png داخل GitHub.")
 
-refresh = st.sidebar.button("تحديث البيانات")
-if refresh:
+if st.sidebar.button("تحديث البيانات"):
     st.cache_data.clear()
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.caption(APP_VERSION)
+st.sidebar.markdown(APP_VERSION)
+st.sidebar.markdown("مصادر رسمية قدر الإمكان. أي بيانات ناقصة لا تدخل في النتيجة.")
 
-# ----------------------------- Data -----------------------------
-with st.spinner("جاري تحديث بيانات الذهب المؤسساتية..."):
-    cot = cot_gold_current()
-    real_df = fred_csv("DFII10", years=3)
-    dxy_df = yf_hist("DX-Y.NYB", period="1y")
-    hui_df = yf_hist("^HUI", period="1y")
-    gld_df = yf_hist("GLD", period="1y")
-    gold_df = yf_hist("GC=F", period="1y")
-    silver_df = yf_hist("SI=F", period="1y")
-    vix_df = yf_hist("^VIX", period="1y")
+# ----------------------------- Load Data -----------------------------
 
-# Ratio
-ratio_df = pd.DataFrame()
-if not gold_df.empty and not silver_df.empty:
-    g = gold_df[["Date", "Close"]].rename(columns={"Close": "Gold"})
-    s = silver_df[["Date", "Close"]].rename(columns={"Close": "Silver"})
-    ratio_df = pd.merge(g, s, on="Date", how="inner")
-    ratio_df["Close"] = ratio_df["Gold"] / ratio_df["Silver"]
+with st.spinner("جاري سحب البيانات من المصادر..."):
+    cot = get_cot_gold()
+    real = real_yield_signal()
+    gold = yf_signal("GC=F", "Gold Futures", False, 1.0)
+    dxy = yf_signal("DX-Y.NYB", "DXY", True, 0.5)
+    hui = yf_signal("^HUI", "HUI Index", False, 1.0)
+    ratio = gold_silver_signal()
+    gld = gld_proxy_signal()
+    vix = yf_signal("^VIX", "VIX", False, 5.0)
+    us10y = get_fred_series("DGS10") if True else pd.DataFrame()
 
-# Bias logic
-cot_bias = "nodata"
-if cot.get("ok"):
-    if cot["net"] > 100000 and cot["net_change"] > -15000:
-        cot_bias = "bullish"
-    elif cot["net_change"] < -25000 or cot["net"] < 50000:
-        cot_bias = "bearish"
-    else:
-        cot_bias = "neutral"
-
-real_last = float(real_df["Value"].iloc[-1]) if not real_df.empty else None
-real_chg_20 = float(real_df["Value"].iloc[-1] - real_df["Value"].iloc[-20]) if len(real_df) > 20 else None
-real_bias = "nodata" if real_chg_20 is None else "bullish" if real_chg_20 < -0.05 else "bearish" if real_chg_20 > 0.05 else "neutral"
-
-dxy_t = trend(dxy_df)
-dxy_bias = "bullish" if dxy_t == "down" else "bearish" if dxy_t == "up" else "neutral"
-
-hui_t = trend(hui_df)
-hui_bias = "bullish" if hui_t == "up" else "bearish" if hui_t == "down" else "neutral"
-
-ratio_t = trend(ratio_df)
-ratio_bias = "bullish" if ratio_t == "up" else "neutral" if ratio_t == "down" else "neutral"
-
-gld_t = trend(gld_df)
-gld_vol = pct_change(gld_df, 20)
-gld_bias = "bullish" if gld_t == "up" else "bearish" if gld_t == "down" else "neutral"
-
-vix_t = trend(vix_df)
-vix_bias = "bullish" if vix_t == "up" else "neutral"
-
-# Score 100
-score = 50
-score += score_bias(cot_bias, 18)
-score += score_bias(real_bias, 18)
-score += score_bias(dxy_bias, 14)
-score += score_bias(hui_bias, 14)
-score += score_bias(gld_bias, 14)
-score += score_bias(ratio_bias, 8)
-score += score_bias(vix_bias, 4)
-score = max(0, min(100, score))
+items = [
+    {"name":"COT", "valid":cot.get("valid", False), "score":cot.get("score",50), "weight":25},
+    {"name":"Real Yield", "valid":real.get("valid", False), "score":real.get("score",50), "weight":25},
+    {"name":"DXY", "valid":dxy.get("valid", False), "score":dxy.get("score",50), "weight":15},
+    {"name":"GLD", "valid":gld.get("valid", False), "score":gld.get("score",50), "weight":15},
+    {"name":"HUI", "valid":hui.get("valid", False), "score":hui.get("score",50), "weight":10},
+    {"name":"Gold/Silver", "valid":ratio.get("valid", False), "score":ratio.get("score",50), "weight":5},
+    {"name":"VIX", "valid":vix.get("valid", False), "score":vix.get("score",50), "weight":5},
+]
+score, reliability = weighted_score(items)
+score = 0 if score is None else score
 
 if score >= 70:
-    final_label = "Strong Bullish Gold Context"
     final_ar = "السياق المؤسساتي صاعد للذهب"
-elif score >= 58:
-    final_label = "Bullish Gold Context"
-    final_ar = "السياق يميل لصالح الذهب"
-elif score <= 30:
-    final_label = "Strong Bearish Gold Context"
-    final_ar = "السياق المؤسساتي هابط للذهب"
-elif score <= 42:
-    final_label = "Bearish Gold Context"
-    final_ar = "السياق يضغط على الذهب"
+    final_en = "Strong Bullish Gold Context"
+elif score >= 55:
+    final_ar = "السياق المؤسساتي يميل للصعود"
+    final_en = "Bullish Gold Context"
+elif score > 45:
+    final_ar = "السياق المؤسساتي محايد"
+    final_en = "Neutral Gold Context"
+elif score > 30:
+    final_ar = "السياق المؤسساتي يميل للهبوط"
+    final_en = "Bearish Gold Context"
 else:
-    final_label = "Neutral Gold Context"
-    final_ar = "السياق محايد"
+    final_ar = "السياق المؤسساتي هابط للذهب"
+    final_en = "Strong Bearish Gold Context"
 
 # ----------------------------- Header -----------------------------
-header_cols = st.columns([1, 5])
-with header_cols[0]:
+
+col_logo, col_head = st.columns([1, 4])
+with col_logo:
     if logo_path.exists():
         st.image(str(logo_path), use_container_width=True)
-    else:
-        st.markdown("<div style='font-size:52px;text-align:center;'>𓂀</div>", unsafe_allow_html=True)
-with header_cols[1]:
+with col_head:
     st.markdown(
         f"""
-        <div class="brand-card">
-          <p class="brand-title">أكاديمية فلو | لوحة الذهب المؤسساتية</p>
-          <div class="brand-subtitle">COT, Real Yield, DXY, HUI, Gold/Silver Ratio, GLD, VIX</div>
-          <div class="small-note">آخر تحديث: {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+        <div class="main-card">
+        <h1>Flow Academy Gold Intelligence</h1>
+        <h3>لوحة الذهب المؤسساتية</h3>
+        <p>COT, Real Yield, DXY, HUI, Gold/Silver Ratio, GLD, VIX</p>
+        <p class="small-note">آخر تحديث: {now_text()}</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-# ----------------------------- Top metrics -----------------------------
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("Institutional Score", f"{score}/100", final_ar)
-with col2:
-    st.metric("Gold Futures", f"{last_close(gold_df):,.2f}" if last_close(gold_df) else "No data", f"{pct_change(gold_df, 20):.2f}% 20D" if pct_change(gold_df, 20) else "")
-with col3:
-    st.metric("Real Yield 10Y", f"{real_last:.2f}%" if real_last is not None else "No data", f"{real_chg_20:.2f} 20D" if real_chg_20 is not None else "")
-with col4:
-    st.metric("DXY", f"{last_close(dxy_df):.2f}" if last_close(dxy_df) else "No data", bias_ar(dxy_bias))
+st.write("")
 
-st.markdown("### قراءة الأدوات")
+# Top metrics
+m1, m2, m3, m4 = st.columns(4)
+with m1:
+    metric_card("Institutional Score", f"{score}/100", "bullish" if score>=55 else "bearish" if score<=45 else "neutral", f"Reliability: {reliability}%")
+with m2:
+    metric_card("Gold Futures", fmt_num(gold.get("value"),2), gold.get("bias","nodata"), f"20D: {fmt_num(gold.get('change20'),2)}%")
+with m3:
+    metric_card("Real Yield 10Y", f"{fmt_num(real.get('value'),2)}%", real.get("bias","nodata"), f"20D: {fmt_num(real.get('change20'),2)}")
+with m4:
+    metric_card("DXY", fmt_num(dxy.get("value"),2), dxy.get("bias","nodata"), f"20D: {fmt_num(dxy.get('change20'),2)}%")
+
+st.markdown("## قراءة الأدوات")
 cols = st.columns(5)
 with cols[0]:
-    detail = f"Net {cot.get('net', 0):,}" if cot.get("ok") else "No data"
-    render_card("COT الصناديق", bias_ar(cot_bias), detail, cot_bias)
+    cot_sub = f"Net {fmt_int(cot.get('net'))} | Δ {fmt_int(cot.get('change_net'))}" if cot.get("valid") else cot.get("error", "No data")
+    metric_card("COT الصناديق", fmt_int(cot.get("net")) if cot.get("valid") else "No data", cot.get("bias","nodata"), cot_sub, source_badge(cot.get("source","CFTC"), "ok" if cot.get("valid") else "bad"))
 with cols[1]:
-    detail = f"{real_last:.2f}%" if real_last is not None else "No data"
-    render_card("Real Yield 10Y", bias_ar(real_bias), detail, real_bias)
+    metric_card("Real Yield 10Y", f"{fmt_num(real.get('value'),2)}%", real.get("bias","nodata"), f"20D: {fmt_num(real.get('change20'),2)}", source_badge(real.get("source","FRED"), "ok" if real.get("valid") else "bad"))
 with cols[2]:
-    detail = f"{last_close(hui_df):.2f}" if last_close(hui_df) else "No data"
-    render_card("HUI Index", bias_ar(hui_bias), detail, hui_bias)
+    metric_card("HUI Index", fmt_num(hui.get("value"),2), hui.get("bias","nodata"), f"20D: {fmt_num(hui.get('change20'),2)}%", source_badge(hui.get("source","Yahoo"), "ok" if hui.get("valid") else "bad"))
 with cols[3]:
-    detail = f"{last_close(ratio_df):.2f}" if last_close(ratio_df) else "No data"
-    render_card("Gold/Silver", bias_ar(ratio_bias), detail, ratio_bias)
+    metric_card("Gold/Silver", fmt_num(ratio.get("value"),2), ratio.get("bias","nodata"), f"20D: {fmt_num(ratio.get('change20'),2)}%", source_badge(ratio.get("source","Yahoo"), "ok" if ratio.get("valid") else "bad"))
 with cols[4]:
-    detail = f"{last_close(gld_df):.2f}" if last_close(gld_df) else "No data"
-    render_card("GLD Proxy", bias_ar(gld_bias), detail, gld_bias)
+    metric_card("GLD Proxy", fmt_num(gld.get("value"),2), gld.get("bias","nodata"), f"20D: {fmt_num(gld.get('change20'),2)}%", source_badge("Yahoo GLD proxy", "ok" if gld.get("valid") else "bad"))
 
-st.markdown("### النتيجة النهائية")
+st.markdown("## النتيجة النهائية")
 st.progress(score / 100)
-st.markdown(f"## {final_ar}")
-st.caption(final_label)
+st.markdown(f"<h2>{final_ar}</h2><p>{final_en}</p>", unsafe_allow_html=True)
 
-cot_date = cot.get("date", "No data") if cot.get("ok") else "No data"
-net = cot.get("net", "No data") if cot.get("ok") else "No data"
-net_change = cot.get("net_change", "No data") if cot.get("ok") else "No data"
+# Data quality table
+st.markdown("## جودة البيانات")
+quality_rows = []
+for name, obj in [("COT", cot), ("Real Yield", real), ("Gold", gold), ("DXY", dxy), ("HUI", hui), ("Gold/Silver", ratio), ("GLD Proxy", gld), ("VIX", vix)]:
+    valid = obj.get("valid", False)
+    date = obj.get("date", obj.get("as_of", "No date"))
+    quality_rows.append({
+        "الأداة": name,
+        "المصدر": obj.get("source", "No source"),
+        "الحالة": "شغال" if valid else "فشل",
+        "آخر تاريخ": str(date),
+        "يدخل بالسكور": "نعم" if valid else "لا",
+    })
+st.dataframe(pd.DataFrame(quality_rows), use_container_width=True, hide_index=True)
 
-def fmt(x, decimals=2):
-    if x is None:
-        return "No data"
-    try:
-        return f"{x:,.{decimals}f}"
-    except Exception:
-        return str(x)
+# Reports
+cot_net_text = fmt_int(cot.get("net")) if cot.get("valid") else "No data"
+cot_change_text = fmt_int(cot.get("change_net")) if cot.get("valid") else "No data"
+real_value_text = fmt_num(real.get("value"), 2)
+dxy_value_text = fmt_num(dxy.get("value"), 2)
+hui_value_text = fmt_num(hui.get("value"), 2)
+ratio_value_text = fmt_num(ratio.get("value"), 2)
+gld_value_text = fmt_num(gld.get("value"), 2)
 
 report_ar = f"""
-النظرة المؤسساتية على الذهب | أكاديمية فلو
+النظرة المؤسساتية على الذهب
 
 النتيجة النهائية: {final_ar}
 الدرجة المؤسساتية: {score}/100
+موثوقية البيانات: {reliability}%
 
-COT الذهب: {bias_ar(cot_bias)}
-تاريخ التقرير: {cot_date}
-صافي مراكز الصناديق: {fmt(net, 0)} عقد
-التغير الأسبوعي: {fmt(net_change, 0)} عقد
+COT الصناديق:
+القراءة: {bias_ar(cot.get('bias','nodata'))}
+صافي مراكز الصناديق: {cot_net_text}
+التغير الأسبوعي: {cot_change_text}
+المصدر: {cot.get('source','CFTC')}
 
-Real Yield 10Y: {bias_ar(real_bias)}
-القراءة الحالية: {fmt(real_last)}%
-تغير 20 يوم: {fmt(real_chg_20)}
+Real Yield 10Y:
+القراءة: {bias_ar(real.get('bias','nodata'))}
+القيمة الحالية: {real_value_text}%
+تغير 20 يوم: {fmt_num(real.get('change20'), 2)}
+المصدر: {real.get('source','FRED')}
 
-DXY: {bias_ar(dxy_bias)}
-القراءة الحالية: {fmt(last_close(dxy_df))}
+DXY:
+القراءة: {bias_ar(dxy.get('bias','nodata'))}
+القيمة الحالية: {dxy_value_text}
+تغير 20 يوم: {fmt_num(dxy.get('change20'), 2)}%
 
-HUI Index: {bias_ar(hui_bias)}
-القراءة الحالية: {fmt(last_close(hui_df))}
+HUI Index:
+القراءة: {bias_ar(hui.get('bias','nodata'))}
+القيمة الحالية: {hui_value_text}
 
-Gold/Silver Ratio: {bias_ar(ratio_bias)}
-القراءة الحالية: {fmt(last_close(ratio_df))}
+Gold/Silver Ratio:
+القراءة: {bias_ar(ratio.get('bias','nodata'))}
+القيمة الحالية: {ratio_value_text}
 
-GLD Proxy: {bias_ar(gld_bias)}
-القراءة الحالية: {fmt(last_close(gld_df))}
+GLD Proxy:
+القراءة: {bias_ar(gld.get('bias','nodata'))}
+القيمة الحالية: {gld_value_text}
 
-القراءة العملية:
-إذا توافق هذا السياق مع تحليل ICT وظهرت مناطق طلب واضحة، يصبح البحث عن فرص شراء أدق.
-إذا ارتفع Real Yield وDXY مع ضعف HUI وGLD، تصبح أي صعودات على الذهب أضعف مؤسسياً.
-هذا تحليل مؤسساتي وليس توصية تداول.
-"""
+قراءة أكاديمية فلو:
+إذا ارتفعت الدرجة فوق 70 فهذا يدعم استمرار الاتجاه الصاعد للذهب مؤسساتياً.
+إذا هبطت الدرجة تحت 30 فهذا يعكس ضغطاً مؤسساتياً واضحاً على الذهب.
+أي قراءة بين 45 و55 تعتبر محايدة وتحتاج تأكيداً من حركة السعر.
+""".strip()
 
 report_en = f"""
-Flow Academy Gold Institutional Outlook
+Flow Academy Gold Institutional Report
 
-Final Bias: {final_label}
+Final Context: {final_en}
 Institutional Score: {score}/100
+Data Reliability: {reliability}%
 
-Gold COT: {bias_ar(cot_bias)}
-Report Date: {cot_date}
-Non-commercial Net Position: {fmt(net, 0)} contracts
-Weekly Net Change: {fmt(net_change, 0)} contracts
+COT Funds: {bias_ar(cot.get('bias','nodata'))} | Net: {cot_net_text} | Weekly Change: {cot_change_text}
+Real Yield 10Y: {bias_ar(real.get('bias','nodata'))} | Current: {real_value_text}%
+DXY: {bias_ar(dxy.get('bias','nodata'))} | Current: {dxy_value_text}
+HUI Index: {bias_ar(hui.get('bias','nodata'))} | Current: {hui_value_text}
+Gold/Silver Ratio: {bias_ar(ratio.get('bias','nodata'))} | Current: {ratio_value_text}
+GLD Proxy: {bias_ar(gld.get('bias','nodata'))} | Current: {gld_value_text}
+""".strip()
 
-Real Yield 10Y: {bias_ar(real_bias)}
-Current Reading: {fmt(real_last)}%
-20-Day Change: {fmt(real_chg_20)}
-
-DXY: {bias_ar(dxy_bias)} | Current: {fmt(last_close(dxy_df))}
-HUI Index: {bias_ar(hui_bias)} | Current: {fmt(last_close(hui_df))}
-Gold/Silver Ratio: {bias_ar(ratio_bias)} | Current: {fmt(last_close(ratio_df))}
-GLD Proxy: {bias_ar(gld_bias)} | Current: {fmt(last_close(gld_df))}
-
-Practical reading:
-When this institutional context aligns with ICT demand, bullish setups carry better confirmation.
-When Real Yield and DXY rise while HUI and GLD weaken, gold rallies lose institutional support.
-This is analysis, not financial advice.
-"""
-
-arabic_tab, english_tab, charts_tab, sources_tab = st.tabs(["التقرير العربي", "English Report", "الرسوم", "المصادر"])
-with arabic_tab:
+st.markdown("## التقرير")
+tab_ar, tab_en = st.tabs(["تقرير عربي", "English Report"])
+with tab_ar:
     st.markdown(f"<div class='report-box'>{report_ar}</div>", unsafe_allow_html=True)
-    st.download_button("تحميل التقرير العربي", report_ar, file_name="flow_gold_report_ar.txt")
-with english_tab:
+    st.download_button("تحميل التقرير العربي TXT", report_ar, file_name="flow_gold_report_ar.txt")
+with tab_en:
     st.markdown(f"<div class='report-box' style='direction:ltr;text-align:left'>{report_en}</div>", unsafe_allow_html=True)
-    st.download_button("Download English Report", report_en, file_name="flow_gold_report_en.txt")
-with charts_tab:
-    c1, c2 = st.columns(2)
-    with c1:
-        plot_line(real_df.rename(columns={"Value": "Close"}), "Real Yield 10Y")
-        plot_line(dxy_df, "DXY")
-        plot_line(gld_df, "GLD Proxy")
-    with c2:
-        plot_line(gold_df, "Gold Futures")
-        plot_line(hui_df, "HUI Gold Bugs Index")
-        plot_line(ratio_df, "Gold/Silver Ratio")
-with sources_tab:
-    st.markdown(
-        """
-        مصادر البيانات:
-        - CFTC Legacy Futures Only COT
-        - FRED DFII10 Real Yield 10Y
-        - Yahoo Finance عبر yfinance: Gold Futures, Silver Futures, DXY, HUI, GLD, VIX
+    st.download_button("Download English TXT", report_en, file_name="flow_gold_report_en.txt")
 
-        ملاحظات:
-        - COT يتحدث أسبوعياً.
-        - Real Yield يتحدث حسب توفر بيانات FRED.
-        - GLD هنا Proxy سعري وليس تدفقات ETF الرسمية.
-        - لتفعيل الشعار دائماً، ارفع ملف logo.png داخل نفس مستودع GitHub.
-        """
-    )
+# Charts
+st.markdown("## الرسوم")
+chart_cols = st.columns(2)
+with chart_cols[0]:
+    if real.get("valid"):
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=real["df"]["date"], y=real["df"]["value"], mode="lines", name="Real Yield 10Y"))
+        fig.update_layout(template="plotly_dark", height=360, margin=dict(l=20,r=20,t=40,b=20), title="Real Yield 10Y - FRED")
+        st.plotly_chart(fig, use_container_width=True)
+with chart_cols[1]:
+    if gold.get("valid"):
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=gold["df"]["Date"], y=gold["df"]["Close"], mode="lines", name="Gold Futures"))
+        fig.update_layout(template="plotly_dark", height=360, margin=dict(l=20,r=20,t=40,b=20), title="Gold Futures")
+        st.plotly_chart(fig, use_container_width=True)
 
+chart_cols2 = st.columns(2)
+with chart_cols2[0]:
+    if dxy.get("valid"):
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=dxy["df"]["Date"], y=dxy["df"]["Close"], mode="lines", name="DXY"))
+        fig.update_layout(template="plotly_dark", height=360, margin=dict(l=20,r=20,t=40,b=20), title="DXY")
+        st.plotly_chart(fig, use_container_width=True)
+with chart_cols2[1]:
+    if ratio.get("valid"):
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=ratio["df"]["Date"], y=ratio["df"]["ratio"], mode="lines", name="Gold/Silver Ratio"))
+        fig.update_layout(template="plotly_dark", height=360, margin=dict(l=20,r=20,t=40,b=20), title="Gold/Silver Ratio")
+        st.plotly_chart(fig, use_container_width=True)
+
+st.markdown("---")
+st.markdown("Flow Academy Gold Pro V3.0 | البيانات الناقصة لا تدخل في النتيجة النهائية.")

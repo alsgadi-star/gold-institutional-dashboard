@@ -1,18 +1,14 @@
-Gold Institutional Dashboard
+# Flow Academy Gold Pro V3
+
+Professional gold institutional dashboard.
 
 Files:
 - app.py
 - requirements.txt
+- optional logo.png
 
 Deploy:
-1. Create GitHub repo.
-2. Upload these files.
-3. Open Streamlit Cloud.
-4. New app.
-5. Choose repo and app.py.
-6. Deploy.
-
-Data sources:
-- CFTC public reporting API
-- FRED DFII10 CSV
-- Stooq market CSV
+1. Upload app.py and requirements.txt to GitHub.
+2. Keep logo file as logo.png if available.
+3. Deploy with Streamlit Cloud.
+4. Main file path: app.py
