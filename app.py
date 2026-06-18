@@ -148,8 +148,24 @@ cols[4].metric("GLD Proxy", label_ar(gld_bias), f"{g_last:.2f}" if g_last is not
 st.subheader("النتيجة النهائية")
 st.metric("Institutional Score", f"{score}/7", final)
 
-report = f"""نظرة مؤسساتية على الذهب\n\nCOT: {label_ar(cot_bias)}. صافي مراكز الصناديق: {net:,} عقد. التغير الأسبوعي: {cot_change:,} عقد.\nReal Yield 10Y: {label_ar(real_bias)}. القراءة الحالية: {r_last if r_last is not None else 'N/A'}.\nHUI: {label_ar(hui_bias)}.\nGold/Silver Ratio: {label_ar(gs_bias)}.\nGLD Proxy: {label_ar(gld_bias)}.\n\nالنتيجة النهائية: {final}.\nدرجة القوة: {score}/7.\n\nهذا تحليل وليس توصية.\n"""
-st.text_area("تقرير عربي جاهز للنشر", report, height=260)
+النظرة المؤسساتية على الذهب
+
+COT: {label_ar(cot_bias)}
+صافي مراكز الصناديق: {net}
+التغير الأسبوعي: {cot_change}
+
+Real Yield 10Y: {label_ar(real_bias)}
+القراءة الحالية: {r_last if r_last is not None else 'No data'}
+
+HUI Index: {label_ar(hui_bias)}
+
+Gold/Silver Ratio: {label_ar(ratio_bias)}
+
+GLD Proxy: {label_ar(gld_bias)}
+
+النتيجة النهائية:
+{final_label}
+Institutional Score: {score}/7
 
 st.subheader("الرسوم")
 if 'real' in locals():
